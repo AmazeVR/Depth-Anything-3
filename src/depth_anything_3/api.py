@@ -350,6 +350,19 @@ class DepthAnything3(nn.Module, PyTorchModelHubMixin):
         if extrinsics is None:
             return prediction
         prediction.intrinsics = intrinsics.numpy()
+        # Check if all translations are zero (degenerate case for Umeyama alignment)
+        extrinsics_np = extrinsics.numpy()
+        # Extract translations (works for both 3x4 and 4x4 matrices)
+        translations = extrinsics_np[..., :3, 3]
+        # If all translations are zero, skip alignment
+        if np.allclose(translations, 0.0, atol=1e-6):
+            # Just update extrinsics and intrinsics without alignment
+            if align_to_input_ext_scale:
+                if extrinsics_np.shape[-2:] == (4, 4):
+                    prediction.extrinsics = extrinsics_np[..., :3, :]
+                else:
+                    prediction.extrinsics = extrinsics_np
+            return prediction
         _, _, scale, aligned_extrinsics = align_poses_umeyama(
             prediction.extrinsics,
             extrinsics.numpy(),
@@ -358,7 +371,10 @@ class DepthAnything3(nn.Module, PyTorchModelHubMixin):
             random_state=42,
         )
         if align_to_input_ext_scale:
-            prediction.extrinsics = extrinsics[..., :3, :].numpy()
+            if extrinsics_np.shape[-2:] == (4, 4):
+                prediction.extrinsics = extrinsics_np[..., :3, :]
+            else:
+                prediction.extrinsics = extrinsics_np
             prediction.depth /= scale
         else:
             prediction.extrinsics = aligned_extrinsics
